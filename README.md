@@ -15,9 +15,17 @@ struct SomeDateTimes {
     #[serde(with = "toml_datetime_compat")]
     chrono_naive_date_time: chrono::NaiveDateTime,
     #[serde(with = "toml_datetime_compat")]
-    chrono_date_time_utc: chrono::DateTime<Utc>,
+    chrono_date_time_utc: chrono::DateTime<chrono::Utc>,
     #[serde(with = "toml_datetime_compat")]
-    chrono_date_time_offset: chrono::DateTime<FixedOffset>,
+    chrono_date_time_offset: chrono::DateTime<chrono::FixedOffset>,
+    #[serde(with = "toml_datetime_compat")]
+    time_date: time::Date,
+    #[serde(with = "toml_datetime_compat")]
+    time_time: time::Time,
+    #[serde(with = "toml_datetime_compat")]
+    time_primitive_date_time: time::PrimitiveDateTime,
+    #[serde(with = "toml_datetime_compat")]
+    time_offset_date_time: time::OffsetDateTime,"#
 }
 ```
 
