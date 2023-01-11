@@ -1,0 +1,26 @@
+[package]
+name = "toml-datetime-compat"
+version = "0.1.0"
+edition = "2021"
+categories = ["encoding", "parser-implementations", "parsing", "config"]
+description = "Simple conversion of toml_datetime types from/to chrono and time"
+keywords = ["encoding", "toml", "chrono", "time", "serde"]
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/ModProg/toml-datetime-compat"
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+chrono = { version = "0.4", optional = true, default-features = false }
+serde = { version = "1", default-features = false }
+thiserror = "1"
+time = { version = "0.3", optional = true, default-features = false }
+toml_datetime = { version = "0.5", features = ["serde"] }
+
+[features]
+
+[dev-dependencies]
+indoc = "1.0.8"
+pretty_assertions = "1.3.0"
+serde = { version = "1.0.152", features = ["derive"] }
+toml = "0.5.10"
