@@ -1,6 +1,6 @@
 [package]
 name = "toml-datetime-compat"
-version = "0.1.2"
+version = "0.2.0"
 edition = "2021"
 categories = ["encoding", "parser-implementations", "parsing", "config"]
 description = "Simple conversion of toml_datetime types from/to chrono and time"
