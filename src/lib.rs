@@ -1,9 +1,10 @@
-//! Adds a functionality to easily convert between [`toml_datetime`]'s and
-//! [`chrono`](::chrono)'s/[`time`](::time)'s types.
+//! Adds a functionality to easily convert between [toml_datetime]'s and
+//! [chrono](::chrono)'s/[time](::time)'s types.
 //!
 //! # Features
-//! - `chrono` enables [`chrono`](::chrono) conversions
-//! - `time` enables [`time`](::time) conversions
+//! - `chrono` enables [chrono](::chrono) conversions
+//! - `time` enables [time](::time) conversions
+//! - `serde_with` enables [`TomlDateTime`] to use with [serde_with](::serde_with)
 //!
 //! # Using [`serde`] derive macros
 //! This crate can be used with
@@ -46,23 +47,40 @@
 //! ```
 //! will (de)serialize from/to
 //! ```toml
-//! naive_date = 1523-08-20
-//! naive_time = 23:54:33.000011235
-//! naive_date_time = 1523-08-20T23:54:33.000011235
-//! date_time_utc = 1523-08-20T23:54:33.000011235Z
-//! date_time_offset = 1523-08-20T23:54:33.000011235+04:30
-//! date = 1523-08-20
-//! time = 23:54:33.000011235
-//! primitive_date_time = 1523-08-20T23:54:33.000011235
-//! offset_date_time = 1523-08-20T23:54:33.000011235+04:30
+#![cfg_attr(
+    feature = "time",
+    doc = r"naive_date = 1523-08-20
+naive_time = 23:54:33.000011235
+naive_date_time = 1523-08-20T23:54:33.000011235
+date_time_utc = 1523-08-20T23:54:33.000011235Z
+date_time_offset = 1523-08-20T23:54:33.000011235+04:30"
+)]
+#![cfg_attr(
+    feature = "time",
+doc = r"date = 1523-08-20
+time = 23:54:33.000011235
+primitive_date_time = 1523-08-20T23:54:33.000011235
+offset_date_time = 1523-08-20T23:54:33.000011235+04:30")]
 //! ```
-//! 
-//! # Using [`FromToToml`]
 //!
-//! And by introducing a new trait [`FromToToml`] that adds
-//! [`to_toml`](FromToToml::to_toml) and [`from_toml`](FromToToml::from_toml)
-//! functions to the relevant structs from [`chrono`](::chrono) and
-//! [`time`](::time).
+#![cfg_attr(
+    feature = "time",
+    doc = r"# Using [serde_with](::serde_with)
+
+It is also possible to use [serde_with](::serde_with) using the [`TomlDateTime`]
+converter.
+
+This is especially helpful to deserialize optional date time values (due to
+[serde-rs/serde#723](https://github.com/serde-rs/serde/issues/723)).
+
+")]
+//!
+//! # Using [`FromToTomlDateTime`]
+//!
+//! And by introducing a new trait [`FromToTomlDateTime`] that adds
+//! [`to_toml`](FromToTomlDateTime::to_toml) and
+//! [`from_toml`](FromToTomlDateTime::from_toml) functions to the relevant
+//! structs from [`chrono`](::chrono) and [`time`](::time).
 #![warn(clippy::pedantic, missing_docs)]
 #![allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 use std::result::Result as StdResult;
@@ -72,19 +90,23 @@ use toml_datetime::Datetime as TomlDatetime;
 #[cfg(any(feature = "chrono", feature = "time"))]
 use toml_datetime::{Date as TomlDate, Offset as TomlOffset, Time as TomlTime};
 
+#[cfg(feature = "serde_with")]
+pub use crate::serde_with::TomlDateTime;
+
 /// Function that can be used with
 /// [`#[serde(deserialize_with="toml_datetime_compat::deserialize")]`](https://serde.rs/field-attrs.html#deserialize_with)
 #[allow(clippy::missing_errors_doc)]
-pub fn deserialize<'de, D: Deserializer<'de>, T: FromToToml>(
+pub fn deserialize<'de, D: Deserializer<'de>, T: FromToTomlDateTime>(
     deserializer: D,
 ) -> StdResult<T, D::Error> {
-    FromToToml::from_toml(TomlDatetime::deserialize(deserializer)?).map_err(D::Error::custom)
+    FromToTomlDateTime::from_toml(TomlDatetime::deserialize(deserializer)?)
+        .map_err(D::Error::custom)
 }
 
 /// Function that can be used with
 /// [`#[serde(serialize_with="toml_datetime_compat::serialize")]`](https://serde.rs/field-attrs.html#serialize_with)
 #[allow(clippy::missing_errors_doc)]
-pub fn serialize<S: Serializer, T: FromToToml>(
+pub fn serialize<S: Serializer, T: FromToTomlDateTime>(
     value: &T,
     serializer: S,
 ) -> StdResult<S::Ok, S::Error> {
@@ -92,6 +114,45 @@ pub fn serialize<S: Serializer, T: FromToToml>(
         .to_toml()
         .map_err(S::Error::custom)?
         .serialize(serializer)
+}
+
+#[cfg(feature = "serde_with")]
+mod serde_with {
+    use serde::{Deserializer, Serializer};
+    use serde_with::{DeserializeAs, SerializeAs};
+
+    use crate::FromToTomlDateTime;
+
+    /// Struct to allow the integration into the [`serde_with`](::serde_with)
+    /// ecosystem
+    #[cfg_attr(any(feature = "time", feature = "chrono"), doc = r#"```
+# use serde::{Deserialize, Serialize};
+use serde_with::serde_as;
+
+#[serde_as]
+#[derive(Serialize, Deserialize)]
+struct OptionalDateTimes {
+    #[serde_as(as = "Option<toml_datetime_compat::TomlDateTime>")]"#)]
+    #[cfg_attr(feature = "time", doc = "    value: Option<time::Date>")]
+    #[cfg_attr(
+        all(not(feature = "time"),
+        feature = "chrono"),
+        doc = "    value: Option<chrono::NaiveDate>"
+    )]
+    #[cfg_attr(any(feature = "time", feature = "chrono"), doc = "}
+```")]
+    pub struct TomlDateTime;
+
+    impl<'de, T: FromToTomlDateTime> DeserializeAs<'de, T> for TomlDateTime {
+        fn deserialize_as<D: Deserializer<'de>>(deserializer: D) -> Result<T, D::Error> {
+            crate::deserialize(deserializer)
+        }
+    }
+    impl<T: FromToTomlDateTime> SerializeAs<T> for TomlDateTime {
+        fn serialize_as<S: Serializer>(source: &T, serializer: S) -> Result<S::Ok, S::Error> {
+            crate::serialize(source, serializer)
+        }
+    }
 }
 
 /// Error that can occur while transforming [`TomlDatetime`] from and to
@@ -141,7 +202,7 @@ type Result<T> = StdResult<T, Error>;
 
 /// Trait that allows easy conversion between [`TomlDatetime`] and
 /// [`chrono`'s](::chrono)/[`time`'s](::time) types
-pub trait FromToToml: Sized {
+pub trait FromToTomlDateTime: Sized {
     /// Converts from a [`TomlDatetime`]
     ///
     /// # Errors
@@ -163,9 +224,9 @@ mod chrono {
         Timelike, Utc,
     };
 
-    use crate::{Error, FromToToml, Result, TomlDate, TomlDatetime, TomlOffset, TomlTime};
+    use crate::{Error, FromToTomlDateTime, Result, TomlDate, TomlDatetime, TomlOffset, TomlTime};
 
-    impl FromToToml for NaiveDate {
+    impl FromToTomlDateTime for NaiveDate {
         fn from_toml(TomlDatetime { date, time, offset }: TomlDatetime) -> Result<Self> {
             if time.is_some() {
                 return Err(Error::UnexpectedTime);
@@ -191,7 +252,7 @@ mod chrono {
         }
     }
 
-    impl FromToToml for NaiveTime {
+    impl FromToTomlDateTime for NaiveTime {
         fn from_toml(TomlDatetime { date, time, offset }: TomlDatetime) -> Result<Self> {
             if date.is_some() {
                 return Err(Error::UnexpectedDate);
@@ -223,7 +284,7 @@ mod chrono {
         }
     }
 
-    impl FromToToml for NaiveDateTime {
+    impl FromToTomlDateTime for NaiveDateTime {
         fn from_toml(TomlDatetime { date, time, offset }: TomlDatetime) -> Result<Self> {
             let date = NaiveDate::from_toml(TomlDatetime {
                 date,
@@ -253,7 +314,7 @@ mod chrono {
         }
     }
 
-    impl FromToToml for DateTime<Utc> {
+    impl FromToTomlDateTime for DateTime<Utc> {
         fn from_toml(TomlDatetime { date, time, offset }: TomlDatetime) -> Result<Self> {
             match offset {
                 Some(
@@ -283,7 +344,7 @@ mod chrono {
         }
     }
 
-    impl FromToToml for DateTime<FixedOffset> {
+    impl FromToTomlDateTime for DateTime<FixedOffset> {
         fn from_toml(TomlDatetime { date, time, offset }: TomlDatetime) -> Result<Self> {
             match offset {
                 Some(offset) => {
@@ -329,7 +390,7 @@ mod chrono {
 mod time {
     use time::{error::ComponentRange, Date, OffsetDateTime, PrimitiveDateTime, Time, UtcOffset};
 
-    use crate::{Error, FromToToml, Result, TomlDate, TomlDatetime, TomlOffset, TomlTime};
+    use crate::{Error, FromToTomlDateTime, Result, TomlDate, TomlDatetime, TomlOffset, TomlTime};
 
     impl From<ComponentRange> for Error {
         fn from(_: ComponentRange) -> Self {
@@ -337,7 +398,7 @@ mod time {
         }
     }
 
-    impl FromToToml for Date {
+    impl FromToTomlDateTime for Date {
         fn from_toml(TomlDatetime { date, time, offset }: TomlDatetime) -> Result<Self> {
             if time.is_some() {
                 return Err(Error::UnexpectedTime);
@@ -362,7 +423,7 @@ mod time {
         }
     }
 
-    impl FromToToml for Time {
+    impl FromToTomlDateTime for Time {
         fn from_toml(TomlDatetime { date, time, offset }: TomlDatetime) -> Result<Self> {
             if date.is_some() {
                 return Err(Error::UnexpectedDate);
@@ -393,7 +454,7 @@ mod time {
         }
     }
 
-    impl FromToToml for PrimitiveDateTime {
+    impl FromToTomlDateTime for PrimitiveDateTime {
         fn from_toml(TomlDatetime { date, time, offset }: TomlDatetime) -> Result<Self> {
             let date = Date::from_toml(TomlDatetime {
                 date,
@@ -423,7 +484,7 @@ mod time {
         }
     }
 
-    impl FromToToml for OffsetDateTime {
+    impl FromToTomlDateTime for OffsetDateTime {
         fn from_toml(TomlDatetime { date, time, offset }: TomlDatetime) -> Result<Self> {
             match offset {
                 Some(offset) => {
@@ -524,9 +585,8 @@ fn chrono() {
     assert_eq!(toml::from_str::<Test>(&serialized).unwrap(), input);
 }
 
-#[test]
-#[cfg(feature = "time")]
-fn time() {
+#[cfg(all(feature = "time", test))]
+mod time_test {
     use ::time::{Date, Month, OffsetDateTime, PrimitiveDateTime, Time, UtcOffset};
     use indoc::formatdoc;
     use pretty_assertions::assert_eq;
@@ -542,41 +602,90 @@ fn time() {
     const OH: i8 = 4;
     const OM: i8 = 30;
 
-    #[derive(Serialize, Deserialize, Debug, PartialEq)]
-    struct Test {
-        #[serde(with = "crate")]
-        date: Date,
-        #[serde(with = "crate")]
-        time: Time,
-        #[serde(with = "crate")]
-        primitive_date_time: PrimitiveDateTime,
-        #[serde(with = "crate")]
-        offset_date_time: OffsetDateTime,
-    }
+    #[test]
+    fn time() {
+        #[derive(Serialize, Deserialize, Debug, PartialEq)]
+        struct Test {
+            #[serde(with = "crate")]
+            date: Date,
+            #[serde(with = "crate")]
+            time: Time,
+            #[serde(with = "crate")]
+            primitive_date_time: PrimitiveDateTime,
+            #[serde(with = "crate")]
+            offset_date_time: OffsetDateTime,
+        }
 
-    let date = Date::from_calendar_date(Y, Month::try_from(M).unwrap(), D).unwrap();
-    let time = Time::from_hms_nano(H, MIN, S, NS).unwrap();
-    let primitive_date_time = PrimitiveDateTime::new(date, time);
+        let date = Date::from_calendar_date(Y, Month::try_from(M).unwrap(), D).unwrap();
+        let time = Time::from_hms_nano(H, MIN, S, NS).unwrap();
+        let primitive_date_time = PrimitiveDateTime::new(date, time);
 
-    let input = Test {
-        date,
-        time,
-        primitive_date_time,
-        offset_date_time: primitive_date_time
-            .assume_offset(UtcOffset::from_hms(OH, OM, 0).unwrap()),
-    };
+        let input = Test {
+            date,
+            time,
+            primitive_date_time,
+            offset_date_time: primitive_date_time
+                .assume_offset(UtcOffset::from_hms(OH, OM, 0).unwrap()),
+        };
 
-    let serialized = toml::to_string(&input).unwrap();
+        let serialized = toml::to_string(&input).unwrap();
 
-    assert_eq!(
-        serialized,
-        dbg!(formatdoc! {"
+        assert_eq!(
+            serialized,
+            dbg!(formatdoc! {"
             date = {Y:04}-{M:02}-{D:02}
             time = {H:02}:{MIN:02}:{S:02}.{NS:09}
             primitive_date_time = {Y:04}-{M:02}-{D:02}T{H:02}:{MIN:02}:{S:02}.{NS:09}
             offset_date_time = {Y:04}-{M:02}-{D:02}T{H:02}:{MIN:02}:{S:02}.{NS:09}+{OH:02}:{OM:02}
             "})
-    );
+        );
 
-    assert_eq!(toml::from_str::<Test>(&serialized).unwrap(), input);
+        assert_eq!(toml::from_str::<Test>(&serialized).unwrap(), input);
+    }
+
+    #[test]
+    #[cfg(feature = "serde_with")]
+    fn serde_with() {
+        use serde_with::serde_as;
+
+        use crate::TomlDateTime;
+
+        #[serde_as]
+        #[derive(Serialize, Deserialize, Debug, PartialEq)]
+        struct Test {
+            #[serde_as(as = "Option<TomlDateTime>")]
+            optional_date_time: Option<OffsetDateTime>,
+        }
+
+        let input = Test {
+            optional_date_time: Some(
+                PrimitiveDateTime::new(
+                    Date::from_calendar_date(Y, Month::try_from(M).unwrap(), D).unwrap(),
+                    Time::from_hms_nano(H, MIN, S, NS).unwrap(),
+                )
+                .assume_offset(UtcOffset::from_hms(OH, OM, 0).unwrap()),
+            ),
+        };
+
+        let serialized = toml::to_string(&input).unwrap();
+
+        assert_eq!(
+            serialized,
+            dbg!(formatdoc! {"
+            optional_date_time = {Y:04}-{M:02}-{D:02}T{H:02}:{MIN:02}:{S:02}.{NS:09}+{OH:02}:{OM:02}
+            "})
+        );
+
+        assert_eq!(toml::from_str::<Test>(&serialized).unwrap(), input);
+
+        let input = Test {
+            optional_date_time: None,
+        };
+
+        let serialized = toml::to_string(&input).unwrap();
+
+        assert!(serialized.trim().is_empty());
+
+        assert_eq!(toml::from_str::<Test>(&serialized).unwrap(), input);
+    }
 }

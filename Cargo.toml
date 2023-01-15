@@ -9,20 +9,23 @@ license = "MIT"
 readme = "README.md"
 repository = "https://github.com/ModProg/toml-datetime-compat"
 documentation = "https://docs.rs/toml-datetime-compat"
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
 metadata.docs.rs.all-features = true
 
 [dependencies]
 chrono = { version = "0.4", optional = true, default-features = false }
 serde = { version = "1", default-features = false }
+serde_with = { version = "2.2.0", optional = true }
 thiserror = "1"
 time = { version = "0.3", optional = true, default-features = false }
 toml_datetime = { version = "0.5", features = ["serde"] }
 
 [features]
+# default = ["chrono", "time", "serde_with"]
 
 [dev-dependencies]
 indoc = "1.0.8"
 pretty_assertions = "1.3.0"
 serde = { version = "1.0.152", features = ["derive"] }
+serde_with = "2.2.0"
 toml = "0.5.10"
