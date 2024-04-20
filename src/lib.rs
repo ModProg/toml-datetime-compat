@@ -11,7 +11,7 @@
 //! This crate can be used with
 //! [`#[serde(with="toml_datetime_compat")]`](https://serde.rs/field-attrs.html#with),
 //! but the functions [`deserialize`] and [`serialize`] can also be used on
-//! their own to (de)serialize [`chrono`](::chrono) an [`time`](::time) types.
+//! their own to (de)serialize [`chrono`](::chrono) and [`time`](::time) types.
 //!
 //! Meaning this struct
 //! ```
@@ -30,7 +30,12 @@
     #[serde(with = "toml_datetime_compat")]
     chrono_date_time_utc: chrono::DateTime<chrono::Utc>,
     #[serde(with = "toml_datetime_compat")]
-    chrono_date_time_offset: chrono::DateTime<chrono::FixedOffset>,"#
+    chrono_date_time_offset: chrono::DateTime<chrono::FixedOffset>,
+    // Options work with any other supported type, too
+    #[serde(with = "toml_datetime_compat", default)]
+    chrono_date_time_utc_optional_present: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(with = "toml_datetime_compat", default)]
+    chrono_date_time_utc_optional_nonpresent: Option<chrono::DateTime<chrono::Utc>>,"#
 )]
 #![cfg_attr(
     feature = "time",
@@ -42,7 +47,12 @@
     #[serde(with = "toml_datetime_compat")]
     time_primitive_date_time: time::PrimitiveDateTime,
     #[serde(with = "toml_datetime_compat")]
-    time_offset_date_time: time::OffsetDateTime,"#
+    time_offset_date_time: time::OffsetDateTime,
+    // Options work with any other supported type, too
+    #[serde(with = "toml_datetime_compat", default)]
+    time_primitive_date_time_optional_present: Option<time::PrimitiveDateTime>,
+    #[serde(with = "toml_datetime_compat", default)]
+    time_primitive_date_time_optional_nonpresent: Option<time::PrimitiveDateTime>,"#
 )]
 //! }
 //! ```
@@ -50,18 +60,20 @@
 //! ```toml
 #![cfg_attr(
     feature = "time",
-    doc = r"naive_date = 1523-08-20
-naive_time = 23:54:33.000011235
-naive_date_time = 1523-08-20T23:54:33.000011235
-date_time_utc = 1523-08-20T23:54:33.000011235Z
-date_time_offset = 1523-08-20T23:54:33.000011235+04:30"
+    doc = r"chrono_naive_date = 1523-08-20
+chrono_naive_time = 23:54:33.000011235
+chrono_naive_date_time = 1523-08-20T23:54:33.000011235
+chrono_date_time_utc = 1523-08-20T23:54:33.000011235Z
+chrono_date_time_offset = 1523-08-20T23:54:33.000011235+04:30
+chrono_date_time_utc_optional_present = 1523-08-20T23:54:33.000011235Z"
 )]
 #![cfg_attr(
     feature = "time",
-    doc = r"date = 1523-08-20
-time = 23:54:33.000011235
-primitive_date_time = 1523-08-20T23:54:33.000011235
-offset_date_time = 1523-08-20T23:54:33.000011235+04:30"
+    doc = r"time_date = 1523-08-20
+time_time = 23:54:33.000011235
+time_primitive_date_time = 1523-08-20T23:54:33.000011235
+time_offset_date_time = 1523-08-20T23:54:33.000011235+04:30
+time_primitive_date_time_optional_present = 1523-08-20T23:54:33.000011235"
 )]
 //! ```
 //!
@@ -73,7 +85,8 @@ It is also possible to use [serde_with](::serde_with) using the [`TomlDateTime`]
 converter.
 
 This is especially helpful to deserialize optional date time values (due to
-[serde-rs/serde#723](https://github.com/serde-rs/serde/issues/723)).
+[serde-rs/serde#723](https://github.com/serde-rs/serde/issues/723)) if the
+existing support for `Option` is insufficient.
 
 "
 )]
@@ -98,24 +111,20 @@ pub use crate::serde_with::TomlDateTime;
 /// Function that can be used with
 /// [`#[serde(deserialize_with="toml_datetime_compat::deserialize")]`](https://serde.rs/field-attrs.html#deserialize_with)
 #[allow(clippy::missing_errors_doc)]
-pub fn deserialize<'de, D: Deserializer<'de>, T: FromToTomlDateTime>(
+pub fn deserialize<'de, D: Deserializer<'de>, T: TomlDateTimeSerde>(
     deserializer: D,
 ) -> StdResult<T, D::Error> {
-    FromToTomlDateTime::from_toml(TomlDatetime::deserialize(deserializer)?)
-        .map_err(D::Error::custom)
+    T::deserialize(deserializer)
 }
 
 /// Function that can be used with
 /// [`#[serde(serialize_with="toml_datetime_compat::serialize")]`](https://serde.rs/field-attrs.html#serialize_with)
 #[allow(clippy::missing_errors_doc)]
-pub fn serialize<S: Serializer, T: FromToTomlDateTime>(
+pub fn serialize<S: Serializer, T: TomlDateTimeSerde>(
     value: &T,
     serializer: S,
 ) -> StdResult<S::Ok, S::Error> {
-    value
-        .to_toml()
-        .map_err(S::Error::custom)?
-        .serialize(serializer)
+    T::serialize(value, serializer)
 }
 
 #[cfg(feature = "serde_with")]
@@ -206,6 +215,62 @@ pub enum Error {
 }
 
 type Result<T> = StdResult<T, Error>;
+
+/// Used to implement serialization atop [`FromToTomlDateTime`] for
+/// [`TomlDatetime`] and various container types.
+pub trait TomlDateTimeSerde {
+    /// Deserializes into a `Self`.
+    fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> StdResult<Self, D::Error>
+    where
+        Self: Sized;
+    /// Serializes a `Self`.
+    fn serialize<S: Serializer>(value: &Self, serializer: S) -> StdResult<S::Ok, S::Error>;
+}
+impl<T: FromToTomlDateTime> TomlDateTimeSerde for T {
+    fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> StdResult<Self, D::Error> {
+        FromToTomlDateTime::from_toml(TomlDatetime::deserialize(deserializer)?)
+            .map_err(D::Error::custom)
+    }
+
+    fn serialize<S: Serializer>(value: &Self, serializer: S) -> StdResult<S::Ok, S::Error> {
+        value
+            .to_toml()
+            .map_err(S::Error::custom)?
+            .serialize(serializer)
+    }
+}
+impl<T: FromToTomlDateTime> TomlDateTimeSerde for Option<T> {
+    fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> StdResult<Self, D::Error> {
+        use serde::de;
+        struct OptionVisitor<T>(std::marker::PhantomData<T>);
+        impl<'de, T: FromToTomlDateTime> de::Visitor<'de> for OptionVisitor<T> {
+            type Value = Option<T>;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("an optional date time")
+            }
+
+            fn visit_none<E: de::Error>(self) -> StdResult<Self::Value, E> {
+                Ok(None)
+            }
+
+            fn visit_some<D: Deserializer<'de>>(
+                self,
+                deserializer: D,
+            ) -> StdResult<Self::Value, D::Error> {
+                T::deserialize(deserializer).map(Some)
+            }
+        }
+        deserializer.deserialize_option(OptionVisitor(std::marker::PhantomData::<T>))
+    }
+
+    fn serialize<S: Serializer>(value: &Self, serializer: S) -> StdResult<S::Ok, S::Error> {
+        match value {
+            Some(value) => serializer.serialize_some(&value.to_toml().map_err(S::Error::custom)?),
+            None => serializer.serialize_none(),
+        }
+    }
+}
 
 /// Trait that allows easy conversion between [`TomlDatetime`] and
 /// [`chrono`'s](::chrono)/[`time`'s](::time) types
@@ -559,6 +624,10 @@ fn chrono() {
         date_time_utc: DateTime<Utc>,
         #[serde(with = "crate")]
         date_time_offset: DateTime<FixedOffset>,
+        #[serde(with = "crate", default)]
+        date_time_utc_optional_present: Option<DateTime<Utc>>,
+        #[serde(with = "crate", default)]
+        date_time_utc_optional_nonpresent: Option<DateTime<Utc>>,
     }
 
     let naive_date = NaiveDate::from_ymd_opt(Y, M, D).unwrap();
@@ -574,6 +643,8 @@ fn chrono() {
             naive_date_time,
             FixedOffset::east_opt((OH * 60 + OM) * 60).unwrap(),
         ),
+        date_time_utc_optional_present: Some(DateTime::from_utc(naive_date_time, Utc)),
+        date_time_utc_optional_nonpresent: None,
     };
 
     let serialized = toml::to_string(&input).unwrap();
@@ -586,6 +657,7 @@ fn chrono() {
             naive_date_time = {Y:04}-{M:02}-{D:02}T{H:02}:{MIN:02}:{S:02}.{NS:09}
             date_time_utc = {Y:04}-{M:02}-{D:02}T{H:02}:{MIN:02}:{S:02}.{NS:09}Z
             date_time_offset = {Y:04}-{M:02}-{D:02}T{H:02}:{MIN:02}:{S:02}.{NS:09}+{OH:02}:{OM:02}
+            date_time_utc_optional_present = {Y:04}-{M:02}-{D:02}T{H:02}:{MIN:02}:{S:02}.{NS:09}Z
             "})
     );
 
@@ -621,6 +693,10 @@ mod time_test {
             primitive_date_time: PrimitiveDateTime,
             #[serde(with = "crate")]
             offset_date_time: OffsetDateTime,
+            #[serde(with = "crate", default)]
+            primitive_date_time_optional_present: Option<PrimitiveDateTime>,
+            #[serde(with = "crate", default)]
+            primitive_date_time_optional_nonpresent: Option<PrimitiveDateTime>,
         }
 
         let date = Date::from_calendar_date(Y, Month::try_from(M).unwrap(), D).unwrap();
@@ -633,6 +709,8 @@ mod time_test {
             primitive_date_time,
             offset_date_time: primitive_date_time
                 .assume_offset(UtcOffset::from_hms(OH, OM, 0).unwrap()),
+            primitive_date_time_optional_present: Some(primitive_date_time),
+            primitive_date_time_optional_nonpresent: None,
         };
 
         let serialized = toml::to_string(&input).unwrap();
@@ -644,6 +722,7 @@ mod time_test {
             time = {H:02}:{MIN:02}:{S:02}.{NS:09}
             primitive_date_time = {Y:04}-{M:02}-{D:02}T{H:02}:{MIN:02}:{S:02}.{NS:09}
             offset_date_time = {Y:04}-{M:02}-{D:02}T{H:02}:{MIN:02}:{S:02}.{NS:09}+{OH:02}:{OM:02}
+            primitive_date_time_optional_present = {Y:04}-{M:02}-{D:02}T{H:02}:{MIN:02}:{S:02}.{NS:09}
             "})
         );
 
