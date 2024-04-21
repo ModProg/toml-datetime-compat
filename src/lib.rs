@@ -4,7 +4,8 @@
 //! # Features
 //! - `chrono` enables [chrono](::chrono) conversions
 //! - `time` enables [time](::time) conversions
-//! - `serde_with` enables [`TomlDateTime`] to use with [serde_with](::serde_with)
+//! - `serde_with` enables [`TomlDateTime`] to use with
+//!   [serde_with](::serde_with)
 //!
 //! # Using [`serde`] derive macros
 //! This crate can be used with
@@ -57,10 +58,11 @@ date_time_offset = 1523-08-20T23:54:33.000011235+04:30"
 )]
 #![cfg_attr(
     feature = "time",
-doc = r"date = 1523-08-20
+    doc = r"date = 1523-08-20
 time = 23:54:33.000011235
 primitive_date_time = 1523-08-20T23:54:33.000011235
-offset_date_time = 1523-08-20T23:54:33.000011235+04:30")]
+offset_date_time = 1523-08-20T23:54:33.000011235+04:30"
+)]
 //! ```
 //!
 #![cfg_attr(
@@ -73,8 +75,8 @@ converter.
 This is especially helpful to deserialize optional date time values (due to
 [serde-rs/serde#723](https://github.com/serde-rs/serde/issues/723)).
 
-")]
-//!
+"
+)]
 //! # Using [`FromToTomlDateTime`]
 //!
 //! And by introducing a new trait [`FromToTomlDateTime`] that adds
@@ -125,22 +127,27 @@ mod serde_with {
 
     /// Struct to allow the integration into the [`serde_with`](::serde_with)
     /// ecosystem
-    #[cfg_attr(any(feature = "time", feature = "chrono"), doc = r#"```
+    #[cfg_attr(
+        any(feature = "time", feature = "chrono"),
+        doc = r#"```
 # use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 
 #[serde_as]
 #[derive(Serialize, Deserialize)]
 struct OptionalDateTimes {
-    #[serde_as(as = "Option<toml_datetime_compat::TomlDateTime>")]"#)]
+    #[serde_as(as = "Option<toml_datetime_compat::TomlDateTime>")]"#
+    )]
     #[cfg_attr(feature = "time", doc = "    value: Option<time::Date>")]
     #[cfg_attr(
-        all(not(feature = "time"),
-        feature = "chrono"),
+        all(not(feature = "time"), feature = "chrono"),
         doc = "    value: Option<chrono::NaiveDate>"
     )]
-    #[cfg_attr(any(feature = "time", feature = "chrono"), doc = "}
-```")]
+    #[cfg_attr(
+        any(feature = "time", feature = "chrono"),
+        doc = "}
+```"
+    )]
     pub struct TomlDateTime;
 
     impl<'de, T: FromToTomlDateTime> DeserializeAs<'de, T> for TomlDateTime {
