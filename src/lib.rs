@@ -1,8 +1,9 @@
 //! Adds a functionality to easily convert between [toml_datetime]'s and
-//! [chrono](::chrono)'s/[time](::time)'s types.
+//! [chrono](::chrono)'s/[jiff](::jiff)'s/[time](::time)'s types.
 //!
 //! # Features
 //! - `chrono` enables [chrono](::chrono) conversions
+//! - `jiff` enables [jiff](::jiff) conversions
 //! - `time` enables [time](::time) conversions
 //! - `serde_with` enables [`TomlDateTime`] to use with
 //!   [serde_with](::serde_with)
@@ -11,7 +12,8 @@
 //! This crate can be used with
 //! [`#[serde(with="toml_datetime_compat")]`](https://serde.rs/field-attrs.html#with),
 //! but the functions [`deserialize`] and [`serialize`] can also be used on
-//! their own to (de)serialize [`chrono`](::chrono) and [`time`](::time) types.
+//! their own to (de)serialize [`chrono`](::chrono), [`jiff`](::jiff), and
+//! [`time`](::time) types.
 //!
 //! Meaning this struct
 //! ```
@@ -54,6 +56,25 @@
     #[serde(with = "toml_datetime_compat", default)]
     time_primitive_date_time_optional_nonpresent: Option<time::PrimitiveDateTime>,"#
 )]
+#![cfg_attr(
+    feature = "jiff",
+    doc = r#"
+    #[serde(with = "toml_datetime_compat")]
+    jiff_date: jiff::civil::Date,
+    #[serde(with = "toml_datetime_compat")]
+    jiff_time: jiff::civil::Time,
+    #[serde(with = "toml_datetime_compat")]
+    jiff_datetime: jiff::civil::DateTime,
+    #[serde(with = "toml_datetime_compat")]
+    jiff_zoned: jiff::Zoned,
+    #[serde(with = "toml_datetime_compat")]
+    jiff_timestamp: jiff::Timestamp,
+    // Options work with any other supported type, too
+    #[serde(with = "toml_datetime_compat", default)]
+    jiff_datetime_optional_present: Option<jiff::civil::DateTime>,
+    #[serde(with = "toml_datetime_compat", default)]
+    jiff_datetime_optional_nonpresent: Option<jiff::civil::DateTime>,"#
+)]
 //! }
 //! ```
 //! will (de)serialize from/to
@@ -75,10 +96,19 @@ time_primitive_date_time = 1523-08-20T23:54:33.000011235
 time_offset_date_time = 1523-08-20T23:54:33.000011235+04:30
 time_primitive_date_time_optional_present = 1523-08-20T23:54:33.000011235"
 )]
+#![cfg_attr(
+    feature = "jiff",
+    doc = r"jiff_date = 1523-08-20
+jiff_time = 23:54:33.000011235
+jiff_datetime = 1523-08-20T23:54:33.000011235
+jiff_zoned = 1523-08-20T23:54:33.000011235+04:30
+jiff_timestamp = 1523-08-20T23:54:33.000011235Z
+jiff_datetime_optional_present = 1523-08-20T23:54:33.000011235"
+)]
 //! ```
 //!
 #![cfg_attr(
-    feature = "time",
+    any(feature = "time", feature = "jiff"),
     doc = r"# Using [serde_with](::serde_with)
 
 It is also possible to use [serde_with](::serde_with) using the [`TomlDateTime`]
@@ -95,14 +125,14 @@ existing support for `Option` is insufficient.
 //! And by introducing a new trait [`FromToTomlDateTime`] that adds
 //! [`to_toml`](FromToTomlDateTime::to_toml) and
 //! [`from_toml`](FromToTomlDateTime::from_toml) functions to the relevant
-//! structs from [`chrono`](::chrono) and [`time`](::time).
+//! structs from [`chrono`](::chrono), [`jiff`](::jiff), and [`time`](::time).
 #![warn(clippy::pedantic, missing_docs)]
 #![allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 use std::result::Result as StdResult;
 
-use serde::{de::Error as _, ser::Error as _, Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _, ser::Error as _};
 use toml_datetime::Datetime as TomlDatetime;
-#[cfg(any(feature = "chrono", feature = "time"))]
+#[cfg(any(feature = "chrono", feature = "time", feature = "jiff"))]
 use toml_datetime::{Date as TomlDate, Offset as TomlOffset, Time as TomlTime};
 
 #[cfg(feature = "serde_with")]
@@ -137,7 +167,7 @@ mod serde_with {
     /// Struct to allow the integration into the [`serde_with`](::serde_with)
     /// ecosystem
     #[cfg_attr(
-        any(feature = "time", feature = "chrono"),
+        any(feature = "time", feature = "chrono", feature = "jiff"),
         doc = r#"```
 # use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
@@ -153,7 +183,11 @@ struct OptionalDateTimes {
         doc = "    value: Option<chrono::NaiveDate>"
     )]
     #[cfg_attr(
-        any(feature = "time", feature = "chrono"),
+        all(not(feature = "time"), not(feature = "chrono"), feature = "jiff"),
+        doc = "    value: Option<jiff::civil::Date>"
+    )]
+    #[cfg_attr(
+        any(feature = "time", feature = "chrono", feature = "jiff"),
         doc = "}
 ```"
     )]
@@ -172,7 +206,7 @@ struct OptionalDateTimes {
 }
 
 /// Error that can occur while transforming [`TomlDatetime`] from and to
-/// [`chrono`](::chrono) and [`time`](::time) types
+/// [`chrono`](::chrono), [`jiff`](::jiff), and [`time`](::time) types
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     /// Caused by years that cannot be represented in [`TomlDate::year`]
@@ -273,7 +307,7 @@ impl<T: FromToTomlDateTime> TomlDateTimeSerde for Option<T> {
 }
 
 /// Trait that allows easy conversion between [`TomlDatetime`] and
-/// [`chrono`'s](::chrono)/[`time`'s](::time) types
+/// [`chrono`'s](::chrono)/[`jiff`'s](::jiff)/[`time`'s](::time) types
 pub trait FromToTomlDateTime: Sized {
     /// Converts from a [`TomlDatetime`]
     ///
@@ -460,7 +494,7 @@ mod chrono {
 
 #[cfg(feature = "time")]
 mod time {
-    use time::{error::ComponentRange, Date, OffsetDateTime, PrimitiveDateTime, Time, UtcOffset};
+    use time::{Date, OffsetDateTime, PrimitiveDateTime, Time, UtcOffset, error::ComponentRange};
 
     use crate::{Error, FromToTomlDateTime, Result, TomlDate, TomlDatetime, TomlOffset, TomlTime};
 
@@ -590,6 +624,177 @@ mod time {
                     minutes: self.offset().minutes_past_hour().unsigned_abs(),
                 }),
             })
+        }
+    }
+}
+
+#[cfg(feature = "jiff")]
+mod jiff {
+    use std::ops::Add;
+
+    use jiff::{
+        Span, Timestamp, Zoned,
+        civil::{Date, DateTime, Time},
+        tz::TimeZone,
+    };
+
+    use crate::{Error, FromToTomlDateTime, Result, TomlDate, TomlDatetime, TomlOffset, TomlTime};
+
+    impl FromToTomlDateTime for Date {
+        fn from_toml(TomlDatetime { date, time, offset }: TomlDatetime) -> Result<Self> {
+            if time.is_some() {
+                return Err(Error::UnexpectedTime);
+            } else if offset.is_some() {
+                return Err(Error::UnexpectedTimeZone);
+            }
+
+            let TomlDate { year, month, day } = date.ok_or(Error::ExpectedDate)?;
+            Date::new(
+                year.try_into().map_err(|_| Error::InvalidYear)?,
+                month as i8,
+                day as i8,
+            )
+            .map_err(|_| Error::UnableToCreateRustType)
+        }
+
+        fn to_toml(&self) -> Result<TomlDatetime> {
+            Ok(TomlDatetime {
+                date: Some(TomlDate {
+                    year: self.year().try_into().map_err(|_| Error::InvalidYear)?,
+                    month: self.month() as u8,
+                    day: self.day() as u8,
+                }),
+                time: None,
+                offset: None,
+            })
+        }
+    }
+
+    impl FromToTomlDateTime for Time {
+        fn from_toml(TomlDatetime { date, time, offset }: TomlDatetime) -> Result<Self> {
+            if date.is_some() {
+                return Err(Error::UnexpectedDate);
+            } else if offset.is_some() {
+                return Err(Error::UnexpectedTimeZone);
+            }
+
+            let TomlTime {
+                hour,
+                minute,
+                second,
+                nanosecond,
+            } = time.ok_or(Error::ExpectedTime)?;
+            Time::new(hour as i8, minute as i8, second as i8, nanosecond as i32)
+                .map_err(|_| Error::UnableToCreateRustType)
+        }
+
+        fn to_toml(&self) -> Result<TomlDatetime> {
+            Ok(TomlDatetime {
+                date: None,
+                time: Some(TomlTime {
+                    hour: self.hour() as u8,
+                    minute: self.minute() as u8,
+                    second: self.second() as u8,
+                    nanosecond: self.subsec_nanosecond() as u32,
+                }),
+                offset: None,
+            })
+        }
+    }
+
+    impl FromToTomlDateTime for DateTime {
+        fn from_toml(TomlDatetime { date, time, offset }: TomlDatetime) -> Result<Self> {
+            if offset.is_some() {
+                return Err(Error::UnexpectedTimeZone);
+            }
+
+            let TomlDate { year, month, day } = date.ok_or(Error::ExpectedDate)?;
+            let TomlTime {
+                hour,
+                minute,
+                second,
+                nanosecond,
+            } = time.ok_or(Error::ExpectedTime)?;
+
+            DateTime::new(
+                year.try_into().map_err(|_| Error::InvalidYear)?,
+                month as i8,
+                day as i8,
+                hour as i8,
+                minute as i8,
+                second as i8,
+                nanosecond as i32,
+            )
+            .map_err(|_| Error::UnableToCreateRustType)
+        }
+
+        fn to_toml(&self) -> Result<TomlDatetime> {
+            Ok(TomlDatetime {
+                date: Some(TomlDate {
+                    year: self.year().try_into().map_err(|_| Error::InvalidYear)?,
+                    month: self.month() as u8,
+                    day: self.day() as u8,
+                }),
+                time: Some(TomlTime {
+                    hour: self.hour() as u8,
+                    minute: self.minute() as u8,
+                    second: self.second() as u8,
+                    nanosecond: self.subsec_nanosecond() as u32,
+                }),
+                offset: None,
+            })
+        }
+    }
+
+    impl FromToTomlDateTime for Zoned {
+        fn from_toml(TomlDatetime { date, time, offset }: TomlDatetime) -> Result<Self> {
+            let offset = offset.ok_or(Error::ExpectedTimeZone)?;
+            let timezone = match offset {
+                TomlOffset::Z
+                | TomlOffset::Custom {
+                    hours: 0,
+                    minutes: 0,
+                } => TimeZone::UTC,
+                TomlOffset::Custom { hours, minutes } => {
+                    TimeZone::fixed(jiff::tz::offset(hours).add(Span::new().minutes(minutes)))
+                }
+            };
+
+            Ok(DateTime::from_toml(TomlDatetime {
+                date,
+                time,
+                offset: None,
+            })?
+            .to_zoned(timezone)
+            .map_err(|_| Error::UnableToCreateRustType)?)
+        }
+
+        fn to_toml(&self) -> Result<TomlDatetime> {
+            let offset = self.time_zone().to_offset(self.timestamp());
+            let offset = Some(if offset.is_zero() {
+                TomlOffset::Z
+            } else {
+                TomlOffset::Custom {
+                    hours: (offset.seconds() / 3600) as i8,
+                    minutes: (offset.seconds() % 3600 / 60).abs() as u8,
+                }
+            });
+            let civil = self.datetime();
+
+            Ok(TomlDatetime {
+                offset,
+                ..civil.to_toml()?
+            })
+        }
+    }
+
+    impl FromToTomlDateTime for Timestamp {
+        fn from_toml(datetime: TomlDatetime) -> Result<Self> {
+            Zoned::from_toml(datetime).map(|z| z.timestamp())
+        }
+
+        fn to_toml(&self) -> Result<TomlDatetime> {
+            self.to_zoned(TimeZone::UTC).to_toml()
         }
     }
 }
@@ -766,6 +971,131 @@ mod time_test {
 
         let input = Test {
             optional_date_time: None,
+        };
+
+        let serialized = toml::to_string(&input).unwrap();
+
+        assert!(serialized.trim().is_empty());
+
+        assert_eq!(toml::from_str::<Test>(&serialized).unwrap(), input);
+    }
+}
+
+#[cfg(all(feature = "jiff", test))]
+mod jiff_test {
+    use indoc::formatdoc;
+    use jiff::{
+        Span, Timestamp, Zoned,
+        civil::{Date, DateTime, Time},
+        tz::TimeZone,
+    };
+    use serde::{Deserialize, Serialize};
+
+    const Y: i16 = 1523;
+    const M: i8 = 8;
+    const D: i8 = 20;
+    const H: i8 = 23;
+    const MIN: i8 = 54;
+    const S: i8 = 33;
+    const NS: i32 = 11_235;
+    const OH: i8 = 4;
+    const OM: i8 = 30;
+
+    #[test]
+    fn jiff() {
+        #[derive(Serialize, Deserialize, Debug, PartialEq)]
+        struct Test {
+            #[serde(with = "crate")]
+            date: Date,
+            #[serde(with = "crate")]
+            time: Time,
+            #[serde(with = "crate")]
+            datetime: DateTime,
+            #[serde(with = "crate")]
+            zoned: Zoned,
+            #[serde(with = "crate")]
+            timestamp: Timestamp,
+            #[serde(with = "crate", default)]
+            datetime_optional_present: Option<DateTime>,
+            #[serde(with = "crate", default)]
+            datetime_optional_nonpresent: Option<DateTime>,
+        }
+
+        let date = Date::constant(Y, M, D);
+        let time = Time::constant(H, MIN, S, NS);
+        let datetime = date.to_datetime(time);
+        let zoned = datetime
+            .to_zoned(TimeZone::fixed(
+                jiff::tz::offset(OH) + Span::new().minutes(OM),
+            ))
+            .unwrap();
+        let timestamp = datetime.to_zoned(TimeZone::UTC).unwrap().timestamp();
+
+        let input = Test {
+            date,
+            time,
+            datetime,
+            zoned,
+            timestamp,
+            datetime_optional_present: Some(datetime),
+            datetime_optional_nonpresent: None,
+        };
+
+        let serialized = toml::to_string(&input).unwrap();
+
+        assert_eq!(
+            serialized,
+            dbg!(formatdoc! {"
+            date = {Y:04}-{M:02}-{D:02}
+            time = {H:02}:{MIN:02}:{S:02}.{NS:09}
+            datetime = {Y:04}-{M:02}-{D:02}T{H:02}:{MIN:02}:{S:02}.{NS:09}
+            zoned = {Y:04}-{M:02}-{D:02}T{H:02}:{MIN:02}:{S:02}.{NS:09}+{OH:02}:{OM:02}
+            timestamp = {Y:04}-{M:02}-{D:02}T{H:02}:{MIN:02}:{S:02}.{NS:09}Z
+            datetime_optional_present = {Y:04}-{M:02}-{D:02}T{H:02}:{MIN:02}:{S:02}.{NS:09}
+            "})
+        );
+
+        assert_eq!(toml::from_str::<Test>(&serialized).unwrap(), input);
+    }
+
+    #[test]
+    #[cfg(feature = "serde_with")]
+    fn serde_with() {
+        use serde_with::serde_as;
+
+        use crate::TomlDateTime;
+
+        #[serde_as]
+        #[derive(Serialize, Deserialize, Debug, PartialEq)]
+        struct Test {
+            #[serde_as(as = "Option<TomlDateTime>")]
+            optional_zoned: Option<Zoned>,
+        }
+
+        let input = Test {
+            optional_zoned: Some(
+                Date::constant(Y, M, D)
+                    .to_datetime(Time::constant(H, MIN, S, NS))
+                    .to_zoned(TimeZone::fixed(
+                        jiff::tz::offset(OH) + Span::new().minutes(OM),
+                    ))
+                    .unwrap(),
+            ),
+        };
+
+        let serialized = toml::to_string(&input).unwrap();
+
+        assert_eq!(
+            serialized,
+            dbg!(formatdoc! {"
+            optional_zoned = {Y:04}-{M:02}-{D:02}T{H:02}:{MIN:02}:{S:02}.{NS:09}+{OH:02}:{OM:02}
+            "})
+        );
+
+        assert_eq!(toml::from_str::<Test>(&serialized).unwrap(), input);
+
+        let input = Test {
+            optional_zoned: None,
         };
 
         let serialized = toml::to_string(&input).unwrap();
